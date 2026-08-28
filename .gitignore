@@ -1,0 +1,13 @@
+bin/
+obj/
+
+.idea/
+
+*.user
+*.suo
+
+.DS_Store
+Thumbs.db
+
+.env
+appsetting.Local.json
