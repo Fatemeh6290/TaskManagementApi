@@ -1,3 +1,5 @@
+using Microsoft.EntityFrameworkCore;
+using TaskManagementApi.Data;
 using TaskManagementApi.DTOs;
 using TaskManagementApi.Interfaces;
 using TaskManagementApi.Models;
@@ -6,53 +8,15 @@ namespace TaskManagementApi.Services;
 
 public class TaskService : ITaskService
 {
-    private readonly List<TaskItem> _tasks = new ();
+    private readonly TaskDbContext _context;
 
-    public TaskService ()
+    public TaskService (TaskDbContext context)
     {
-        _tasks.Add(new TaskItem
-        {
-            Id = 1,
-            Title = "Task 1",
-            Description = "Description 1",
-            IsCompleted = true
-        });
-
-        _tasks.Add(new TaskItem
-        {
-            Id = 2,
-            Title = "Task 2",
-            Description = "Description 2",
-            IsCompleted = false
-        });
-
-        _tasks.Add(new TaskItem
-        {
-            Id = 3,
-            Title = "Task 3",
-            Description = "Description 3",
-            IsCompleted = true
-        });
-
-        _tasks.Add(new TaskItem
-        {
-            Id = 4,
-            Title = "Task 4",
-            Description = "Description 4",
-            IsCompleted = false
-        });
-
-        _tasks.Add(new TaskItem
-        {
-            Id = 5,
-            Title = "Task 5",
-            Description = "Description 5",
-            IsCompleted = true
-        });
+        _context = context;
     }
-    public PagedResultDto GetAllTasks(bool? isCompleted, string? title, string? sortBy, bool? descending, int page, int pageSize)
+    public async Task<PagedResultDto> GetAllTasks(bool? isCompleted, string? title, string? sortBy, bool? descending, int page, int pageSize)
     {
-        var query = _tasks.AsEnumerable();
+        var query = _context.Tasks.AsNoTracking().AsQueryable();
         
         if (isCompleted.HasValue)
             query = query.Where(t => t.IsCompleted == isCompleted.Value);
@@ -66,9 +30,9 @@ public class TaskService : ITaskService
             {   
                 case "id":
                     if (descending is true)
-                        query = query.OrderByDescending(t => t.Id);
+                        query = query.OrderByDescending(t => t.TaskId);
                     else
-                        query = query.OrderBy(t => t.Id);
+                        query = query.OrderBy(t => t.TaskId);
                     break;
                 case "title":
                     if (descending is true)
@@ -85,9 +49,9 @@ public class TaskService : ITaskService
             }
         }
         
-        var totalCount = query.Count();
+        var totalCount = await query.CountAsync();
         var totalPages = (int)Math.Ceiling((double)totalCount / pageSize);
-        var tasks = query.Skip((page - 1) * pageSize).Take(pageSize).ToList();
+        var tasks = await query.Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
 
         return new PagedResultDto{
             Item = tasks,
@@ -98,39 +62,44 @@ public class TaskService : ITaskService
         };
     }
 
-    public TaskItem? GetTaskById(int id)
+    public async Task<TaskItem?> GetTaskById(int id)
     {
-        return _tasks.FirstOrDefault(t => t.Id == id);
+        return await _context.Tasks.AsNoTracking().Include(u => u.User).FirstOrDefaultAsync(t => t.TaskId == id);
     }
 
-    public void CreateTask(TaskItem task)
-    {
-        _tasks.Add(task);
+    public async Task CreateTask(TaskItem task)
+    { 
+        await _context.Tasks.AddAsync(task);
+        await _context.SaveChangesAsync();
     }
 
-    public TaskItem? UpdateTask(int id, TaskItem task)
+    public async Task<TaskItem?> UpdateTask(int id, TaskItem task)
     {
-        var taskToUpdate = GetTaskById(id);
-        if (taskToUpdate != null)
-        {
-            taskToUpdate.Title = task.Title;
-            taskToUpdate.Description = task.Description;
-            taskToUpdate.IsCompleted = task.IsCompleted;
-        }
+        var taskToUpdate = await _context.Tasks.FirstOrDefaultAsync(t => t.TaskId == id);
         
-        return taskToUpdate;
+        if (taskToUpdate is null)
+            return null;
+        
+        taskToUpdate.Title = task.Title;
+        taskToUpdate.Description = task.Description;
+        taskToUpdate.IsCompleted = task.IsCompleted;
+        taskToUpdate.UserId = task.UserId;
+        
+        await _context.SaveChangesAsync();
+        
+        return await _context.Tasks.Include(u => u.User).FirstOrDefaultAsync(t => t.TaskId == id);
     }
 
-    public bool DeleteTask(int id)
+    public async Task<bool> DeleteTask(int id)
     {
-        var taskToDelete = GetTaskById(id);
+        var taskToDelete = await _context.Tasks.FirstOrDefaultAsync(t => t.TaskId == id);
 
-        if (taskToDelete != null)
-        {
-            _tasks.Remove(taskToDelete);
-            return true;
-        }
-        
-        return false;
+        if (taskToDelete is null)
+            return false;
+
+        _context.Tasks.Remove(taskToDelete);
+        await _context.SaveChangesAsync();
+            
+        return true;
     }
 }
